@@ -1,0 +1,8 @@
+{
+  "name": "resq-common",
+  "version": "0.1.0",
+  "description": "Zero-dependency C++17 utilities — DSA, Result type, file I/O, SIMD array ops, geospatial primitives",
+  "homepage": "https://github.com/resq-software/vcpkg",
+  "license": "Apache-2.0",
+  "dependencies": []
+}
