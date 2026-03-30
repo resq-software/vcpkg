@@ -1,37 +1,41 @@
 # ResQ vcpkg Packages
 
-[![CI](https://github.com/resq-software/vcpkg/actions/workflows/ci.yml/badge.svg)](https://github.com/resq-software/vcpkg/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/resq-software/vcpkg/ci.yml?branch=main&label=ci&style=flat-square)](https://github.com/resq-software/vcpkg/actions)
+[![C++](https://img.shields.io/badge/C++-17-00599C?style=flat-square)](#)
+[![CMake](https://img.shields.io/badge/CMake-3.20+-064F8C?style=flat-square)](#)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 
-Repository for ResQ C++ libraries distributed via [vcpkg](https://vcpkg.io/).
+> C++ vcpkg libraries for the ResQ autonomous drone platform.
 
-## resq-common
+## Packages
 
-A **zero-dependency, header-only C++17** utility library providing data structures and algorithms (DSA), error handling, file/string/array utilities, and geospatial primitives. Uses only the C++ standard library -- no external dependencies required.
+| Port | Description |
+|------|-------------|
+| `resq-common` | Shared DSA, geo utilities, result types, and string/array/file helpers |
 
 ## Installation
 
-### Via CMake FetchContent
+**Via CMake FetchContent** (recommended):
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(resq-common
-  GIT_REPOSITORY https://github.com/resq-software/vcpkg.git
+FetchContent_Declare(
+  resq-common
+  GIT_REPOSITORY https://github.com/resq-software/vcpkg
   GIT_TAG        resq-common@v0.1.0
-  SOURCE_SUBDIR  packages/resq-common)
+)
 FetchContent_MakeAvailable(resq-common)
-target_link_libraries(myapp PRIVATE resq::common)
+target_link_libraries(your_target PRIVATE resq::common)
 ```
 
-### Via vcpkg overlay (once registered)
-
+**Via vcpkg overlay:**
 ```bash
 vcpkg install resq-common
 ```
 
-### Direct include path
-
+**Direct include path:**
 ```cmake
-target_include_directories(myapp PRIVATE path/to/packages/resq-common/include)
+target_include_directories(your_target PRIVATE path/to/resq-common/include)
 ```
 
 ## Modules
