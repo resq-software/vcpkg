@@ -33,3 +33,14 @@ ctest --test-dir build -C Debug --output-on-failure
 - Don't add external dependencies
 - Don't break the public API without versioning
 - Don't remove or rename public headers without a major version bump
+
+## Git hooks
+
+Canonical hooks from [`resq-software/dev`](https://github.com/resq-software/dev).
+Install:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/resq-software/dev/main/scripts/install-hooks.sh | sh
+```
+
+Contract: [dev/AGENTS.md#git-hooks](https://github.com/resq-software/dev/blob/main/AGENTS.md#git-hooks). `clang-format` is handled by `resq pre-commit`; no `local-<hook>` needed for this repo.
