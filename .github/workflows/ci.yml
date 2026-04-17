@@ -1,27 +1,51 @@
+# Copyright 2026 ResQ Software
+# SPDX-License-Identifier: Apache-2.0
+#
+# Thin CI wrapper. Dispatches to the org-wide reusable `required`
+# aggregator (which calls cpp-ci matrix + security-scan). Subsumes
+# the prior inline cmake/ctest workflow AND the placeholder
+# required.yml — both removed in the same PR.
+
 name: CI
 
 on:
   push:
     branches: [main]
-    paths: ["packages/**"]
+    paths: ["packages/**", ".github/workflows/ci.yml"]
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  gates:
+    uses: resq-software/.github/.github/workflows/required.yml@f4b51a620aa1bf89c0bce4f434b36f92ff7d517d
+    with:
+      lang: cpp
+      cpp-os-list: '["ubuntu-latest","macos-latest","windows-latest"]'
+      cpp-source-dir: "packages/resq-common"
+      cpp-cmake-flags: "-DRESQ_COMMON_BUILD_TESTS=ON"
+      codeql-languages: '["c-cpp"]'
+    secrets: inherit
+
+  required:
+    name: required
+    runs-on: ubuntu-latest
+    needs: [gates]
+    if: always()
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Configure
-        run: cmake -B build -DRESQ_COMMON_BUILD_TESTS=ON packages/resq-common
-
-      - name: Build
-        run: cmake --build build --config Debug
-
-      - name: Test
-        run: ctest --test-dir build --output-on-failure -C Debug
+      - env:
+          R: ${{ needs.gates.result }}
+        run: |
+          set -eu
+          case "$R" in
+            success|skipped|"") echo "ok: gates=$R" ;;
+            *) echo "::error::gates reusable returned: $R"; exit 1 ;;
+          esac
