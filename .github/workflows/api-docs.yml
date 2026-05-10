@@ -171,6 +171,11 @@ jobs:
         working-directory: ${{ env.OUTPUT_DIR }}
         run: |
           find . -type f -name "*.md" -print0 | while IFS= read -r -d '' f; do
+            # shellcheck disable=SC2016
+            # Backticks in the sed pattern are literal characters
+            # matching the markdown code-span delimiters around
+            # `inline` in moxygen output, not shell command
+            # substitution. Single quotes are intentional.
             sed -i -E 's/ `inline`//g' "$f"
           done
 
@@ -335,7 +340,7 @@ jobs:
         working-directory: ${{ env.OUTPUT_DIR }}
         run: |
           find . -name "*.md" -type f \
-            | sed 's|^\./||; s|\.md$||' \
+            | sed "s|^\./||; s|\.md\$||" \
             | sort > _pages.txt
           jq -R -s 'split("\n") | map(select(length > 0))' _pages.txt > _pages.json
           rm _pages.txt
