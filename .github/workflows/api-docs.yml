@@ -155,7 +155,7 @@ jobs:
         # TypeScript template.
         working-directory: ${{ env.OUTPUT_DIR }}
         run: |
-          find . -type f -name '*.md' -print0 | while IFS= read -r -d '' f; do
+          find . -type f -name "*.md" -print0 | while IFS= read -r -d '' f; do
             sed -E -i \
               's|\]\(([A-Za-z0-9][^)/]*\.md(#[^)]*)?)\)|](./\1)|g' \
               "$f"
@@ -170,7 +170,7 @@ jobs:
         # observable behavior.
         working-directory: ${{ env.OUTPUT_DIR }}
         run: |
-          find . -type f -name '*.md' -print0 | while IFS= read -r -d '' f; do
+          find . -type f -name "*.md" -print0 | while IFS= read -r -d '' f; do
             sed -i -E 's/ `inline`//g' "$f"
           done
 
@@ -182,7 +182,7 @@ jobs:
         # delete legitimate cross-references later in the document.
         working-directory: ${{ env.OUTPUT_DIR }}
         run: |
-          find . -type f -name '*.md' -print0 | while IFS= read -r -d '' f; do
+          find . -type f -name "*.md" -print0 | while IFS= read -r -d '' f; do
             python3 - "$f" <<'PY'
           import pathlib, re, sys
           p = pathlib.Path(sys.argv[1])
@@ -223,7 +223,7 @@ jobs:
         # so escape-all is the safer rule here.
         working-directory: ${{ env.OUTPUT_DIR }}
         run: |
-          find . -type f -name '*.md' -print0 | while IFS= read -r -d '' f; do
+          find . -type f -name "*.md" -print0 | while IFS= read -r -d '' f; do
             awk '
               BEGIN { in_fence = 0 }
               /^```/ { in_fence = !in_fence; print; next }
@@ -334,7 +334,7 @@ jobs:
         # extension) so the docs repo can splice them into docs.json.
         working-directory: ${{ env.OUTPUT_DIR }}
         run: |
-          find . -name '*.md' -type f \
+          find . -name "*.md" -type f \
             | sed 's|^\./||; s|\.md$||' \
             | sort > _pages.txt
           jq -R -s 'split("\n") | map(select(length > 0))' _pages.txt > _pages.json
