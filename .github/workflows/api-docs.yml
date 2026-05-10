@@ -134,6 +134,24 @@ jobs:
             exit 1
           fi
 
+      - name: Prefix bare-filename intra-page links with ./
+        # moxygen emits same-directory cross-references as bare
+        # filenames, e.g. `[GeoPoint](resq-common-geo-GeoPoint.md)`.
+        # Mintlify accepts `(../foo/bar.md)` but rejects bare
+        # filenames as broken. Prefix any bare-filename `.md` link
+        # with `./` so the resolver keeps it as a relative path.
+        # External URLs (https://...) and already-relative paths
+        # (./, ../) are left alone because the leading-char class
+        # `[A-Za-z0-9]` excludes both. Same approach as the
+        # TypeScript template.
+        working-directory: ${{ env.OUTPUT_DIR }}
+        run: |
+          find . -type f -name '*.md' -print0 | while IFS= read -r -d '' f; do
+            sed -E -i \
+              's|\]\(([A-Za-z0-9][^)/]*\.md(#[^)]*)?)\)|](./\1)|g' \
+              "$f"
+          done
+
       - name: Strip moxygen breadcrumbs
         # moxygen prepends a breadcrumb on the first line of each
         # page like `[**parent**](parent.md)` linking to .md files
