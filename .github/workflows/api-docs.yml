@@ -152,6 +152,19 @@ jobs:
               "$f"
           done
 
+      - name: Strip noise annotations
+        # moxygen tags every header-defined method with `inline` in
+        # the class summary table. It's a compilation directive, not
+        # API surface, and it appears on practically every row of
+        # every class — pure noise for a reader. `const`, `static`,
+        # `noexcept`, `virtual` are kept because they describe
+        # observable behavior.
+        working-directory: ${{ env.OUTPUT_DIR }}
+        run: |
+          find . -type f -name '*.md' -print0 | while IFS= read -r -d '' f; do
+            sed -i -E 's/ `inline`//g' "$f"
+          done
+
       - name: Strip moxygen breadcrumbs
         # moxygen prepends a breadcrumb on the first line of each
         # page like `[**parent**](parent.md)` linking to .md files
