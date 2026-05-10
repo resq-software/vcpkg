@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -yqq doxygen graphviz
-          npm install --location=global moxygen@0.10.0
+          npm install --location=global moxygen@2.1.7
 
       - name: Run Doxygen + moxygen per package
         # Loop over each public package, run Doxygen against just its
