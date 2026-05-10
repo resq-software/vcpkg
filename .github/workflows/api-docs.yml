@@ -1,0 +1,404 @@
+name: API docs (C++)
+
+# Auto-generates per-package API reference from Doxygen XML for this
+# vcpkg-published C++ workspace and opens a PR against
+# resq-software/docs. Doxygen extracts class/function declarations
+# from header comments, and moxygen converts the resulting XML to
+# Markdown that Mintlify can serve.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or branch to document
+        required: false
+        type: string
+  push:
+    tags:
+      - 'v*'
+      - '*-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Tag pushes can trigger workflow_dispatch in flight; cancel in
+  # progress so the docs PR always reflects the most recent ref.
+  group: api-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      OUTPUT_DIR: generated-docs
+      DOCS_TARGET: sdks/cpp/api
+      # Public packages to document. Each must have a top-level
+      # `include/` directory whose .hpp files carry Doxygen comments.
+      # Tests, internal helpers, and CMake module files are skipped
+      # by the include-only Doxygen INPUT below.
+      PUBLIC_PACKAGES: >-
+        resq-common
+
+    steps:
+      - name: Resolve ref metadata
+        # Single source of truth for the ref this run documents.
+        run: |
+          raw='${{ inputs.ref || github.ref_name }}'
+          raw="${raw#refs/tags/}"
+          raw="${raw#refs/heads/}"
+          slug="${raw//\//-}"
+          slug="${slug//\@/-}"
+          {
+            echo "DOCS_REF_NAME=$raw"
+            echo "DOCS_REF_SLUG=$slug"
+          } >> "$GITHUB_ENV"
+
+      - name: Checkout source repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - name: Install Doxygen + moxygen
+        # Doxygen ships in apt and is the source-of-truth XML
+        # extractor; moxygen is an npm package that converts the
+        # XML to one markdown file per class/group. Pinning npm
+        # globally is acceptable here because the runner is
+        # disposable.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -yqq doxygen graphviz
+          npm install --location=global moxygen@0.10.0
+
+      - name: Run Doxygen + moxygen per package
+        # Loop over each public package, run Doxygen against just its
+        # include/ directory (so we don't pull in vendored deps), and
+        # convert the resulting XML to one .md per class/namespace.
+        # GENERATE_HTML=NO keeps the artifact size sane.
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUTPUT_DIR"
+          rm -rf "${OUTPUT_DIR:?}"/*
+          generated=0
+          for pkg in $PUBLIC_PACKAGES; do
+            pkg_dir="packages/$pkg"
+            inc_dir="$pkg_dir/include"
+            if [ ! -d "$inc_dir" ]; then
+              echo "::warning ::skipping $pkg (no include/ dir at $inc_dir)"
+              continue
+            fi
+            out_dir="$OUTPUT_DIR/$pkg"
+            mkdir -p "$out_dir"
+            xml_dir="$(mktemp -d)"
+            cat <<DOXY > "$xml_dir/Doxyfile"
+          PROJECT_NAME           = "$pkg"
+          INPUT                  = $inc_dir
+          RECURSIVE              = YES
+          EXTRACT_ALL            = YES
+          EXTRACT_PRIVATE        = NO
+          EXTRACT_STATIC         = YES
+          GENERATE_XML           = YES
+          XML_OUTPUT             = $xml_dir/xml
+          GENERATE_HTML          = NO
+          GENERATE_LATEX         = NO
+          QUIET                  = YES
+          WARN_IF_UNDOCUMENTED   = NO
+          WARN_IF_DOC_ERROR      = NO
+          JAVADOC_AUTOBRIEF      = YES
+          MARKDOWN_SUPPORT       = YES
+          AUTOLINK_SUPPORT       = YES
+          BUILTIN_STL_SUPPORT    = YES
+          DOXY
+            doxygen "$xml_dir/Doxyfile"
+            # moxygen takes the XML dir and writes one .md file per
+            # class via --classes; the output template uses %s as
+            # the class name.
+            moxygen --classes \
+                    --output "$out_dir/%s.md" \
+                    "$xml_dir/xml/" || {
+              echo "::warning ::moxygen failed for $pkg; emitting stub"
+              {
+                echo "# $pkg"
+                echo
+                echo "_Doxygen extraction failed for this package._"
+              } > "$out_dir/README.md"
+            }
+            rm -rf "$xml_dir"
+            generated=$((generated + 1))
+          done
+          if [ "$generated" -eq 0 ]; then
+            echo "::error ::no packages generated; aborting empty doc PR"
+            exit 1
+          fi
+
+      - name: Strip moxygen breadcrumbs
+        # moxygen prepends a breadcrumb on the first line of each
+        # page like `[**parent**](parent.md)` linking to .md files
+        # we don't ship. Strip just the leading breadcrumb (line 1
+        # only) rather than every link line in the body, which would
+        # delete legitimate cross-references later in the document.
+        working-directory: ${{ env.OUTPUT_DIR }}
+        run: |
+          find . -type f -name '*.md' -print0 | while IFS= read -r -d '' f; do
+            python3 - "$f" <<'PY'
+          import pathlib, re, sys
+          p = pathlib.Path(sys.argv[1])
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          # Strip leading breadcrumb-style lines (single markdown link
+          # to a .md target with optional bold text) plus any blank
+          # lines that follow it. Stop at the first non-breadcrumb,
+          # non-blank line.
+          breadcrumb = re.compile(r"^\[[^\]]+\]\([^)]*\.md\)\s*$")
+          i = 0
+          while i < len(lines):
+              s = lines[i].strip()
+              if not s or breadcrumb.match(s):
+                  i += 1
+                  continue
+              break
+          if i:
+              p.write_text("".join(lines[i:]), encoding="utf-8")
+          PY
+          done
+
+      - name: Escape MDX-special characters outside code regions
+        # Mintlify parses .md as MDX. Literal `{ ... }` in prose is
+        # interpreted as a JSX expression; literal `<X>` (e.g.
+        # `Result<T>`, `std::vector<int>`) is parsed as a JSX
+        # component reference, which fails when the "component" isn't
+        # defined. Backtick-span detection (same walker as the Python
+        # template — see api-docs.python.yml) keeps code spans
+        # verbatim.
+        #
+        # Unlike the Python template, this one is more aggressive
+        # about `<`: it escapes `<` followed by anything except `!`
+        # (HTML comment) or `/` (closing tag). The Python template
+        # passes through `<X` where X is a letter because
+        # pydoc-markdown emits `<a id="...">` HTML anchors that need
+        # to render. Doxygen-derived markdown can still legitimately
+        # contain template syntax in prose (e.g. function summaries),
+        # so escape-all is the safer rule here.
+        working-directory: ${{ env.OUTPUT_DIR }}
+        run: |
+          find . -type f -name '*.md' -print0 | while IFS= read -r -d '' f; do
+            awk '
+              BEGIN { in_fence = 0 }
+              /^```/ { in_fence = !in_fence; print; next }
+              {
+                if (in_fence) { print; next }
+                s = $0
+                out = ""
+                n = length(s)
+                i = 1
+                while (i <= n) {
+                  c = substr(s, i, 1)
+                  if (c == "`") {
+                    runlen = 0
+                    while (i + runlen <= n && substr(s, i + runlen, 1) == "`") runlen++
+                    j = i + runlen
+                    close_at = 0
+                    while (j <= n) {
+                      if (substr(s, j, 1) == "`") {
+                        k = 0
+                        while (j + k <= n && substr(s, j + k, 1) == "`") k++
+                        if (k == runlen) { close_at = j; break }
+                        j += k
+                      } else {
+                        j++
+                      }
+                    }
+                    if (close_at > 0) {
+                      end = close_at + runlen - 1
+                      out = out substr(s, i, end - i + 1)
+                      i = end + 1
+                    } else {
+                      out = out substr(s, i, runlen)
+                      i += runlen
+                    }
+                  } else if (c == "{") {
+                    out = out "&#123;"; i++
+                  } else if (c == "}") {
+                    out = out "&#125;"; i++
+                  } else if (c == "<") {
+                    next_c = (i + 1 <= n) ? substr(s, i + 1, 1) : ""
+                    # Pass through HTML comments (<!--) and closing
+                    # tags (</foo>); escape everything else,
+                    # including `<X>` template syntax.
+                    if (next_c == "!" || next_c == "/") {
+                      out = out c; i++
+                    } else {
+                      out = out "&lt;"; i++
+                    }
+                  } else {
+                    out = out c; i++
+                  }
+                }
+                print out
+              }
+            ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          done
+
+      - name: Write top-level index
+        # Stitch a small README.mdx at the top of the api/ folder
+        # listing the public packages with their vcpkg.json versions.
+        # Emit .mdx because Mintlify's docs.json nav resolver only
+        # matches .mdx for page ids.
+        run: |
+          python3 - <<'PY' > "$OUTPUT_DIR/README.mdx"
+          import json
+          import os
+          import pathlib
+
+          ref_name = os.environ.get("DOCS_REF_NAME", "main")
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          out = pathlib.Path(os.environ["OUTPUT_DIR"])
+          packages = (os.environ.get("PUBLIC_PACKAGES") or "").split()
+
+          def read_version(pkg: str) -> str:
+              vcpkg_json = pathlib.Path("packages") / pkg / "vcpkg.json"
+              if not vcpkg_json.exists():
+                  return "unknown"
+              try:
+                  data = json.loads(vcpkg_json.read_text(encoding="utf-8"))
+              except json.JSONDecodeError:
+                  return "unknown"
+              # vcpkg.json uses one of: version, version-string,
+              # version-semver, version-date.
+              for key in ("version", "version-semver",
+                          "version-string", "version-date"):
+                  if key in data:
+                      return str(data[key])
+              return "unknown"
+
+          print("# ResQ C++ SDK")
+          print()
+          print(
+              f"Auto-generated reference for "
+              f"[`{repo}`](https://github.com/{repo}) "
+              f"at ref `{ref_name}`."
+          )
+          print()
+          print("## Packages")
+          print()
+          for pkg in sorted(packages):
+              if not (out / pkg).is_dir():
+                  continue
+              print(f"- `{pkg}` — `v{read_version(pkg)}`")
+          PY
+
+      - name: Build pages index
+        # Flat JSON array of generated Markdown paths (without
+        # extension) so the docs repo can splice them into docs.json.
+        working-directory: ${{ env.OUTPUT_DIR }}
+        run: |
+          find . -name '*.md' -type f \
+            | sed 's|^\./||; s|\.md$||' \
+            | sort > _pages.txt
+          jq -R -s 'split("\n") | map(select(length > 0))' _pages.txt > _pages.json
+          rm _pages.txt
+
+      - name: Checkout docs repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: resq-software/docs
+          path: docs-checkout
+          token: ${{ secrets.DOCS_REPO_PR_TOKEN }}
+          persist-credentials: false
+
+      - name: Sync generated Markdown into docs checkout
+        run: |
+          target="docs-checkout/${DOCS_TARGET}"
+          mkdir -p "$target"
+          rm -rf "${target:?}"/*
+          cp -R "${OUTPUT_DIR}/." "$target/"
+
+      - name: Splice _pages.json into docs.json nav
+        # Mintlify only routes pages registered in docs.json. Build a
+        # hierarchical group structure so each package becomes its
+        # own collapsible group, mirroring the Python/.NET layout.
+        working-directory: docs-checkout
+        run: |
+          python3 - <<'PYINNER'
+          import json
+          import pathlib
+
+          PREFIX = "sdks/cpp/api"
+          LANG_LABEL = "C++"
+
+          docs_path = pathlib.Path("docs.json")
+          docs = json.loads(docs_path.read_text())
+          pages_path = pathlib.Path(PREFIX) / "_pages.json"
+          if not pages_path.exists():
+              raise SystemExit(f"missing {pages_path}")
+          raw = json.loads(pages_path.read_text())
+
+          tree: dict = {}
+
+          def insert(node, parts, full_id):
+              if len(parts) == 1:
+                  node.setdefault("_files", []).append((parts[0], full_id))
+                  return
+              head, *rest = parts
+              insert(node.setdefault("_dirs", {}).setdefault(head, {}), rest, full_id)
+
+          for p in raw:
+              if p == "README":
+                  continue
+              full_id = f"{PREFIX}/{p}"
+              insert(tree, p.split("/"), full_id)
+
+          def to_mintlify(node, group_name):
+              pages = []
+              for _, full_id in sorted(node.get("_files", [])):
+                  pages.append(full_id)
+              for dname, sub in sorted(node.get("_dirs", {}).items()):
+                  pages.append(to_mintlify(sub, dname))
+              return pages if group_name is None else {"group": group_name, "pages": pages}
+
+          new_pages = [f"{PREFIX}/README"] + to_mintlify(tree, None)
+
+          en = next(l for l in docs["navigation"]["languages"] if l["language"] == "en")
+          sdks_tab = next(t for t in en["tabs"] if t["tab"] == "SDKs")
+          gen_group = next(g for g in sdks_tab["groups"] if g["group"] == "Generated Package References")
+          for sub in gen_group["pages"]:
+              if isinstance(sub, dict) and sub.get("group") == LANG_LABEL:
+                  sub["pages"] = new_pages
+                  break
+          else:
+              gen_group["pages"].append({"group": LANG_LABEL, "pages": new_pages})
+
+          docs_path.write_text(json.dumps(docs, indent=2, ensure_ascii=False))
+          print(f"Updated {LANG_LABEL} sub-group with {len(raw)} pages")
+          PYINNER
+
+      - name: Open PR in docs repo
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
+        with:
+          path: docs-checkout
+          token: ${{ secrets.DOCS_REPO_PR_TOKEN }}
+          author: 'resq-sw <engineer@resq.software>'
+          committer: 'resq-sw <engineer@resq.software>'
+          commit-message: |
+            docs(cpp): sync API reference for ${{ env.DOCS_REF_NAME }}
+          title: 'docs(cpp): API reference ${{ env.DOCS_REF_NAME }}'
+          body: |
+            Auto-generated by `${{ github.workflow }}` in
+            `${{ github.repository }}` for ref `${{ env.DOCS_REF_NAME }}`
+            (run: ${{ github.run_id }}).
+
+            Regenerated files under `sdks/cpp/api/`. Doxygen extracted
+            declarations from each package's `include/` headers; moxygen
+            converted them to Markdown.
+          branch: auto/cpp-api-${{ env.DOCS_REF_SLUG }}
+          base: main
+          delete-branch: true
+          add-paths: |
+            sdks/cpp/api/**
+            docs.json
+          labels: |
+            automated
+            docs:api-ref
+            language:cpp
