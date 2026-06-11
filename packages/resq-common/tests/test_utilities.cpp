@@ -17,6 +17,8 @@
 #include <gtest/gtest.h>
 #include <resq/resq_common.hpp>
 
+#include <filesystem>
+
 using namespace resq;
 
 // --- Result<T> ---
@@ -98,8 +100,12 @@ TEST(StringUtils, SplitRespectingQuotes) {
 
 class FileUtilsTest : public ::testing::Test {
 protected:
-    const std::string test_file = "/tmp/resq_gtest.txt";
-    const std::string test_dir = "/tmp/resq_gtest_dir";
+    // Use the platform temp directory so the tests run on Windows (no /tmp),
+    // macOS, and Linux alike.
+    const std::string test_file =
+        (std::filesystem::temp_directory_path() / "resq_gtest.txt").string();
+    const std::string test_dir =
+        (std::filesystem::temp_directory_path() / "resq_gtest_dir").string();
 
     void TearDown() override {
         FileUtils::delete_path(test_file);
@@ -210,8 +216,10 @@ TEST(Integration, DroneFilteringWorkflow) {
     }
 
     std::string csv = StringUtils::join(drone_ids, ", ");
-    auto result = FileUtils::write_file("/tmp/available_drones_gtest.txt", csv);
+    const std::string out_file =
+        (std::filesystem::temp_directory_path() / "available_drones_gtest.txt").string();
+    auto result = FileUtils::write_file(out_file, csv);
     EXPECT_TRUE(result.is_ok());
 
-    FileUtils::delete_path("/tmp/available_drones_gtest.txt");
+    FileUtils::delete_path(out_file);
 }
