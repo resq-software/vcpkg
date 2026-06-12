@@ -140,8 +140,13 @@ inline bool validate_url_env(const char* env_name, bool required = false) {
         return true;
     }
 
-    std::string url(value);
-    if (url.find("http://") != 0 && url.find("https://") != 0) {
+    // Anchored prefix check with strncmp: matches only when the scheme is a
+    // true prefix, and avoids both the fragile `find(...) != 0` idiom and an
+    // allocating std::string copy. value is non-null/non-empty here, and
+    // strncmp stops at the NUL terminator, so short values are safe.
+    const bool has_http_scheme = std::strncmp(value, "http://", 7) == 0 ||
+                                 std::strncmp(value, "https://", 8) == 0;
+    if (!has_http_scheme) {
         std::cerr << "Error: " << env_name << " must start with http:// or https://" << std::endl;
         return false;
     }
