@@ -140,8 +140,12 @@ inline bool validate_url_env(const char* env_name, bool required = false) {
         return true;
     }
 
-    std::string url(value);
-    if (url.find("http://") != 0 && url.find("https://") != 0) {
+    // Anchored prefix check (rfind(prefix, 0) == 0): only matches when the
+    // scheme is a true prefix, avoiding the fragile `find(...) != 0` idiom.
+    const std::string url(value);
+    const bool has_http_scheme =
+        url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
+    if (!has_http_scheme) {
         std::cerr << "Error: " << env_name << " must start with http:// or https://" << std::endl;
         return false;
     }

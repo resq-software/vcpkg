@@ -15,10 +15,11 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege at the workflow level; the only job that needs to write
+# code-scanning results (the reusable `gates` aggregator, which runs CodeQL)
+# is granted `security-events: write` at the job level below.
 permissions:
   contents: read
-  security-events: write
-  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,6 +27,10 @@ concurrency:
 
 jobs:
   gates:
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: read
     uses: resq-software/.github/.github/workflows/required.yml@f4b51a620aa1bf89c0bce4f434b36f92ff7d517d
     with:
       lang: cpp
