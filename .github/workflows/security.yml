@@ -15,7 +15,14 @@ on:
   workflow_dispatch:
 
 permissions:
+  # `actions: read` is required by the reusable workflow's codeql + zizmor jobs
+  # (github/codeql-action telemetry). An explicit permissions block sets every
+  # unlisted scope to `none`, so without this the nested jobs request more than
+  # the caller grants and the run is rejected at creation (startup_failure).
+  actions: read
   contents: read
+  # The one write scope, and only because the reusable's scanners upload SARIF
+  # through it. It cannot write repository contents.
   security-events: write
   pull-requests: read
 
