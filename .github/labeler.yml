@@ -1,0 +1,49 @@
+# Copyright 2026 ResQ Software
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# ── Package scope labels ────────────────────────────────────────────────
+
+"pkg:resq-common":
+  - changed-files:
+    - any-glob-to-any-file: packages/resq-common/**/*
+
+# ── Area labels ─────────────────────────────────────────────────────────
+
+"A-DevOps":
+  - changed-files:
+    - any-glob-to-any-file:
+      - .github/**/*
+      - .git-hooks/**/*
+      - .gitattributes
+
+"A-Build":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "**/CMakeLists.txt"
+      - "**/*.cmake"
+
+"A-Ports":
+  - changed-files:
+    - any-glob-to-any-file: packages/*/vcpkg.json
+
+# ── Category labels ─────────────────────────────────────────────────────
+
+"C-Headers":
+  - changed-files:
+    - any-glob-to-any-file: packages/*/include/**/*
+
+"C-Testing":
+  - changed-files:
+    - any-glob-to-any-file: packages/*/tests/**/*
+
+"C-Documentation":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "**/*.md"
+      - docs/**/*
