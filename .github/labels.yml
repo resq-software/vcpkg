@@ -133,6 +133,15 @@
   color: "f1e05a"
   description: JavaScript and TypeScript dependency updates
 
+# --- Release automation (referenced by .github/release.yml exclude list) ---
+- name: "ignore-for-release"
+  color: "e1e4e8"
+  description: Exclude this PR from the generated GitHub Release notes
+
+- name: "skip-changelog"
+  color: "e1e4e8"
+  description: Exclude this PR from the changelog
+
 # --- Status (S-) ---
 - name: "S-Needs-Triage"
   color: "ededed"

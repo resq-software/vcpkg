@@ -31,4 +31,9 @@ jobs:
       - uses: pascalgn/size-label-action@56b489b027932ec0cf60438a1a5f1a19c8fc71ff # v0.5.7
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-          IGNORED: ".*\\.lock$|bun\\.lock|\\.lock\\.yml$"
+          # size-label-action parses IGNORED as newline-delimited glob patterns
+          # (globrex, extended+globstar), NOT a regex. Exclude lockfiles from the
+          # size calc so dependency bumps don't inflate the size/* label.
+          IGNORED: |
+            **/*.lock
+            **/*.lock.yml
