@@ -11,7 +11,9 @@ on:
 permissions:
   contents: read
 
-engine: copilot
+engine:
+  id: copilot
+  model: gpt-4.1
 
 strict: true
 
