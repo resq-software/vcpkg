@@ -1,5 +1,6 @@
 /**
  * Copyright 2026 ResQ Software
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +18,7 @@
 /**
  * @brief No-Fly Zone (NFZ) and geofencing utilities
  *
- * Provides geofencing functionality for FAA Part 107 compliance:
+ * Provides geofencing utilities:
  * - No-fly zone polygon definitions
  * - Point-in-polygon checking
  * - Path/line segment intersection detection
