@@ -130,11 +130,21 @@ jobs:
         run: |
           set -euo pipefail
           assets=("$RUNNER_TEMP"/release-assets/*)
-          # A re-run for an already-released tag replaces the assets rather
-          # than failing with "release already exists".
+          # A re-run for an already-released tag attaches only the assets the
+          # release lacks. Assets already there stay as they are: each was
+          # attested by the run that uploaded it, and nothing published is
+          # deleted before its replacement exists.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; replacing its assets."
-            gh release upload "$TAG" "${assets[@]}" --clobber
+            echo "Release $TAG already exists; attaching only missing assets."
+            attached=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+            for asset in "${assets[@]}"; do
+              name=$(basename "$asset")
+              if grep -qxF "$name" <<<"$attached"; then
+                echo "keep: $name is already attached"
+              else
+                gh release upload "$TAG" "$asset"
+              fi
+            done
             exit 0
           fi
           gh release create "$TAG" "${assets[@]}" \
