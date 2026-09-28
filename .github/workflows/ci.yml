@@ -59,28 +59,95 @@ jobs:
             *) echo "::error::gates reusable returned: $R"; exit 1 ;;
           esac
 
-  # Publish a GitHub Release per port tag (`<port>@vX.Y.Z`) so
-  # resq-software/landing's changelog aggregator picks the version up — the
-  # aggregator ingests GitHub *Releases*, not git tags. Runs only on a tag
-  # push, after the `required` gate is green.
+  # Publish a GitHub Release per port tag (`<port>@vX.Y.Z`) so the org's
+  # changelog aggregator picks the version up — the aggregator ingests GitHub
+  # *Releases*, not git tags. Runs only on a tag push, after the `required`
+  # gate is green.
+  #
+  # Each release carries a source archive of the port at the tag and an SPDX
+  # JSON SBOM of it, and both are covered by a build-provenance attestation,
+  # so anyone can check them with
+  # `gh attestation verify <file> --repo resq-software/vcpkg`.
   release:
     name: GitHub Release
     needs: [required]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
-      contents: write # create the release
+      contents: write # create the release and attach its assets
+      id-token: write # sign the provenance attestation
+      attestations: write # store the provenance attestation
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Archive the port source at the tag
+        id: port
+        # Written outside the workspace so the SBOM scan does not see it.
+        run: |
+          set -euo pipefail
+          port="${TAG%@*}"
+          version="${TAG##*@}"
+          dir="packages/${port}"
+          if [ ! -f "${dir}/vcpkg.json" ]; then
+            echo "::error::tag ${TAG} names no port: ${dir}/vcpkg.json is missing"
+            exit 1
+          fi
+          stem="${port}-${version}"
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          git archive --format=tar.gz --prefix="${stem}/" \
+            -o "$RUNNER_TEMP/release-assets/${stem}.tar.gz" "${TAG}:${dir}"
+          {
+            echo "dir=${dir}"
+            echo "stem=${stem}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate the SBOM (SPDX JSON)
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: ${{ steps.port.outputs.dir }}
+          format: spdx-json
+          output-file: ${{ runner.temp }}/release-assets/${{ steps.port.outputs.stem }}.spdx.json
+          # The last step attaches it to the release.
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/release-assets/*
+
       - name: Create GitHub Release from the tag
-        # `gh` reads $GH_TOKEN and $GITHUB_REPOSITORY automatically; the tag is
-        # passed via env (never `${{ }}` inside run:) to avoid zizmor template
+        # `gh` reads $GH_TOKEN and $GH_REPO from the job env; the tag is passed
+        # via env (never `${{ }}` inside run:) to avoid zizmor template
         # injection. --generate-notes builds notes from merged PRs since the
         # previous tag; --verify-tag asserts the ref is a real tag first.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: >
-          gh release create "$TAG"
-          --title "$TAG"
-          --generate-notes
-          --verify-tag
+        run: |
+          set -euo pipefail
+          assets=("$RUNNER_TEMP"/release-assets/*)
+          # A re-run for an already-released tag attaches only the assets the
+          # release lacks. Assets already there stay as they are: each was
+          # attested by the run that uploaded it, and nothing published is
+          # deleted before its replacement exists.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; attaching only missing assets."
+            attached=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+            for asset in "${assets[@]}"; do
+              name=$(basename "$asset")
+              if grep -qxF "$name" <<<"$attached"; then
+                echo "keep: $name is already attached"
+              else
+                gh release upload "$TAG" "$asset"
+              fi
+            done
+            exit 0
+          fi
+          gh release create "$TAG" "${assets[@]}" \
+            --title "$TAG" \
+            --generate-notes \
+            --verify-tag
