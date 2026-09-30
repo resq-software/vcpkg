@@ -19,9 +19,12 @@ on:
   pull_request:
     branches: [main]
 
-# Least-privilege at the workflow level; the only job that needs to write
-# code-scanning results (the reusable `gates` aggregator, which runs CodeQL)
-# is granted `security-events: write` at the job level below.
+# Least-privilege at the workflow level. The `gates` aggregator still needs
+# `security-events: write` at the job level below, but NOT for CodeQL -- this
+# workflow no longer dispatches a CodeQL analysis (see `codeql-languages`
+# below). The permission is required because the reusable security job's
+# `zizmor` step uploads a SARIF report; CodeQL alerts on this repository all
+# come from code-scanning default setup, not from here.
 permissions:
   contents: read
 
