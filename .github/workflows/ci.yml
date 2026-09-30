@@ -41,7 +41,18 @@ jobs:
       cpp-os-list: '["ubuntu-latest","macos-latest","windows-latest"]'
       cpp-source-dir: "packages/resq-common"
       cpp-cmake-flags: "-DRESQ_COMMON_BUILD_TESTS=ON"
-      codeql-languages: '["c-cpp"]'
+      # `codeql-languages` is deliberately omitted. It defaults to "[]",
+      # which skips security-scan's CodeQL job.
+      #
+      # C/C++ is already declared in security.yml, so passing it here ran
+      # the same analysis a second time per event — and neither copy was
+      # ever stored. Code-scanning *default setup* is enabled on this
+      # repository, so every advanced-setup upload is rejected with "CodeQL
+      # analyses from advanced configurations cannot be processed when the
+      # default setup is enabled". The reusable's `continue-on-error: true`
+      # swallowed that error, so the job still reported success. Every
+      # CodeQL alert this repository has comes from default setup, which
+      # additionally runs the broader `extended` query suite.
     secrets: inherit
 
   required:
